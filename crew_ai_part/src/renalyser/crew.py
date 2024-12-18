@@ -42,7 +42,7 @@ dataset_validation_agent = Agent(
 data_cleaning_agent = Agent(
     name="DataCleaningAgent",
     role="Dataset Cleaner",
-    goal="Clean the dataset by removing duplicates and handling missing values.",
+    goal="Clean the dataset by removing duplicates and handling missing values and null values and not a number entries.",
     tools=[clean_dataset_tool],
     backstory="You have to focus on ensuring data quality by cleaning datasets through duplicate removal and imputing missing values."
 )
