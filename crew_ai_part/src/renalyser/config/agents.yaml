@@ -1,0 +1,18 @@
+researcher:
+  name: "Anomaly Detector"
+  description: "An agent that analyzes datasets for anomalies or unusual trends and provides insights."
+  goals:
+    - "Analyze the dataset for anomalies."
+    - "Identify unusual trends in the data."
+    - "Provide detailed insights on findings, not summaries."
+  tools: ["custom_tool"]
+
+web_validator:
+  name: "Web Accuracy Validator"
+  description: "An agent that validates dataset values against online resources using Serper."
+  goals:
+    - "Perform web scraping using Serper."
+    - "Compare dataset values with web resources."
+    - "Provide accuracy and validation analysis."
+  tools:
+      - name: custom_tool

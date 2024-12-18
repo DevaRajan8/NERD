@@ -1,0 +1,7 @@
+tasks:
+  - name: Validate Dataset Anomalies
+    description: "Validate the dataset by detecting anomalies or unusual trends."
+    agent: DatasetValidationAgent
+  - name: Compare Dataset to Web Data
+    description: "Fetch web data using Serper API and compare it with dataset values."
+    agent: WebScrapingAgent
