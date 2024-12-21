@@ -1,7 +1,7 @@
 import psycopg2
 
 try:
-    pg_conn = psycopg2.connect("postgresql://postgres:devarajan#8@localhost:5432/demo")
+    pg_conn = os.getenv("psql")
     print("Connection successful!")
     pg_conn.close()
 except Exception as e:
