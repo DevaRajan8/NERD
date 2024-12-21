@@ -130,7 +130,7 @@ try:
             st.error(f"Error retrieving chunks from PostgreSQL: {e}")
 
     # Streamlit App
-    st.title("Research Paper to Dataset Management and Chunking")
+    st.title("NERD")
     st.sidebar.header("Database Information")
     try:
         total_datasets = collection.count_documents({})
