@@ -32,6 +32,39 @@ try:
         import re
         df.columns = [re.sub(r"[^\w]", "_", col)[:230] for col in df.columns]
         return df
+    def upload_to_weaviate(dataset: pd.DataFrame):
+        try:
+            class_name = "Dataset"
+            if not weaviate_client.schema.contains({"class": class_name}):
+                weaviate_client.schema.create_class({
+                    "class": class_name,
+                    "properties": [{"name": col, "dataType": ["string"]} for col in dataset.columns]
+                })
+
+            for _, row in dataset.iterrows():
+                data_object = row.to_dict()
+                weaviate_client.data_object.create(data_object, class_name)
+
+            st.success("Dataset uploaded to Weaviate successfully!")
+        except Exception as e:
+            st.error(f"Error uploading to Weaviate: {e}")
+    def display_weaviate_contents():
+        try:
+            class_name = "Dataset"
+            if not weaviate_client.schema.contains({"class": class_name}):
+                st.warning("No datasets found in Weaviate.")
+                return
+
+            results = weaviate_client.data_object.get()
+            if results and results.get("objects"):
+                st.write("### Contents in Weaviate")
+                for obj in results["objects"]:
+                    if obj["class"] == class_name:
+                        st.json(obj)
+            else:
+                st.warning("No objects found in Weaviate.")
+        except Exception as e:
+            st.error(f"Error fetching data from Weaviate: {e}")
     def extract_text_from_pdf(file):
         """Extract text from a PDF file."""
         reader = PdfReader(file)
@@ -47,7 +80,7 @@ try:
         current_section = None
         for line in text.split("\n"):
             line = line.strip()
-            if re.match(r"^(Abstract|Introduction|Methodology|Conclusion):?$", line, re.IGNORECASE):
+            if re.match(r"^(Abstract|Introduction|Conclusion|References|Methodology):?$", line, re.IGNORECASE):
                 current_section = line
                 sections[current_section] = []
             elif current_section:
@@ -206,15 +239,12 @@ try:
             st.write("### Extracted Text")
             st.text(text[:500])
 
-            sections = split_text_by_sections(text)
-            st.write("### Sections Identified")
-            st.json(sections)
-
             entities = extract_named_entities(text)
             st.write("### Named Entities")
             st.json(entities)
 
-            result = chunk_text_by_section_and_store_pgai(sections, entities)
+            result = chunk_text_with_entities_pgai(text, entities)
+            display_chunks_from_postgresql()
             st.success(result)
     elif task_option == "View Chunks in Database":
         if st.button("Retrieve Chunks"):
