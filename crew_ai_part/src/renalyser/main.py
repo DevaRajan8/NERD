@@ -33,12 +33,31 @@ try:
         df.columns = [re.sub(r"[^\w]", "_", col)[:230] for col in df.columns]
         return df
     def extract_text_from_pdf(file):
+        """Extract text from a PDF file."""
         reader = PdfReader(file)
         text = ""
         for page in reader.pages:
             text += page.extract_text()
         return text
+
+    def split_text_by_sections(text):
+        """Split text into sections based on headers."""
+        import re
+        sections = {}
+        current_section = None
+        for line in text.split("\n"):
+            line = line.strip()
+            if re.match(r"^(Abstract|Introduction|Methodology|Conclusion):?$", line, re.IGNORECASE):
+                current_section = line
+                sections[current_section] = []
+            elif current_section:
+                sections[current_section].append(line)
+        for section, lines in sections.items():
+            sections[section] = " ".join(lines)
+        return sections
+
     def extract_named_entities(text):
+        """Extract named entities from text."""
         doc = nlp(text)
         entities = []
         for ent in doc.ents:
@@ -49,44 +68,14 @@ try:
                 "label": ent.label_
             })
         return entities
-    def upload_to_weaviate(dataset: pd.DataFrame):
-        try:
-            class_name = "Dataset"
-            if not weaviate_client.schema.contains({"class": class_name}):
-                weaviate_client.schema.create_class({
-                    "class": class_name,
-                    "properties": [{"name": col, "dataType": ["string"]} for col in dataset.columns]
-                })
 
-            for _, row in dataset.iterrows():
-                data_object = row.to_dict()
-                weaviate_client.data_object.create(data_object, class_name)
-
-            st.success("Dataset uploaded to Weaviate successfully!")
-        except Exception as e:
-            st.error(f"Error uploading to Weaviate: {e}")
-    def display_weaviate_contents():
-        try:
-            class_name = "Dataset"
-            if not weaviate_client.schema.contains({"class": class_name}):
-                st.warning("No datasets found in Weaviate.")
-                return
-
-            results = weaviate_client.data_object.get()
-            if results and results.get("objects"):
-                st.write("### Contents in Weaviate")
-                for obj in results["objects"]:
-                    if obj["class"] == class_name:
-                        st.json(obj)
-            else:
-                st.warning("No objects found in Weaviate.")
-        except Exception as e:
-            st.error(f"Error fetching data from Weaviate: {e}")
-    def chunk_text_with_entities_pgai(text, entities):
+    def chunk_text_by_section_and_store_pgai(sections, entities):
+        """Chunk text by section and store in PostgreSQL."""
         try:
             pg_cursor.execute("""
-                CREATE TABLE IF NOT EXISTS text_chunks (
+                CREATE TABLE IF NOT EXISTS section_chunks (
                     id SERIAL PRIMARY KEY,
+                    section_name TEXT,
                     chunk_text TEXT,
                     entities JSONB
                 )
@@ -94,40 +83,38 @@ try:
         except Exception as e:
             st.error(f"Error creating table: {e}")
             return "Failed to create table in PostgreSQL."
-        chunk_size = 500
-        try:
-            for i in range(0, len(text), chunk_size):
-                chunk = text[i:i + chunk_size]
-                chunk_entities = [ent for ent in entities if ent['start'] >= i and ent['end'] <= i + chunk_size]
-                pg_cursor.execute(
-                    sql.SQL("SELECT COUNT(*) FROM text_chunks WHERE chunk_text = %s"),
-                    [chunk]
-                )
-                exists = pg_cursor.fetchone()[0]
-                if exists == 0:
-                    pg_cursor.execute(
-                        sql.SQL("INSERT INTO text_chunks (chunk_text, entities) VALUES (%s, %s)"),
-                        [chunk, json.dumps(chunk_entities)]
-                    )
-        except Exception as e:
-            st.error(f"Error inserting chunks into PostgreSQL: {e}")
-            return "Failed to insert chunks into PostgreSQL."
 
-        return "Text chunking completed and stored in PostgreSQL."
-    def display_chunks_from_postgresql():
         try:
-            pg_cursor.execute("SELECT chunk_text, entities FROM text_chunks ORDER BY id;")
+            for section, content in sections.items():
+                chunk_entities = [
+                    ent for ent in entities
+                    if ent['start'] >= text.find(content) and ent['end'] <= text.find(content) + len(content)
+                ]
+                pg_cursor.execute(
+                    sql.SQL("INSERT INTO section_chunks (section_name, chunk_text, entities) VALUES (%s, %s, %s)"),
+                    [section, content, json.dumps(chunk_entities)]
+                )
+        except Exception as e:
+            st.error(f"Error inserting sections into PostgreSQL: {e}")
+            return "Failed to insert sections into PostgreSQL."
+
+        return "Section-based chunking completed and stored in PostgreSQL."
+
+    def display_chunks_from_postgresql():
+        """Retrieve and display chunks from PostgreSQL."""
+        try:
+            pg_cursor.execute("SELECT section_name, chunk_text, entities FROM section_chunks ORDER BY id;")
             rows = pg_cursor.fetchall()
             if rows:
-                st.write("### Retrieved Chunks")
-                for idx, (chunk_text, entities) in enumerate(rows, start=1):
-                    st.write(f"**Chunk {idx}:**")
+                st.write("### Retrieved Sections")
+                for idx, (section_name, chunk_text, entities) in enumerate(rows, start=1):
+                    st.write(f"**Section {idx}: {section_name}**")
                     st.text(chunk_text)
                     st.json(entities)
             else:
-                st.warning("No chunks found in the database.")
+                st.warning("No sections found in the database.")
         except Exception as e:
-            st.error(f"Error retrieving chunks from PostgreSQL: {e}")
+            st.error(f"Error retrieving sections from PostgreSQL: {e}")
 
     # Streamlit App
     st.title("NERD")
@@ -219,12 +206,15 @@ try:
             st.write("### Extracted Text")
             st.text(text[:500])
 
+            sections = split_text_by_sections(text)
+            st.write("### Sections Identified")
+            st.json(sections)
+
             entities = extract_named_entities(text)
             st.write("### Named Entities")
             st.json(entities)
 
-            result = chunk_text_with_entities_pgai(text, entities)
-            display_chunks_from_postgresql()
+            result = chunk_text_by_section_and_store_pgai(sections, entities)
             st.success(result)
     elif task_option == "View Chunks in Database":
         if st.button("Retrieve Chunks"):
